@@ -17,22 +17,16 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// MongoDB Connection
+// MongoDB Connection with retry logic
 let blockchain;
-let isConnecting = false;
-
 const connectDB = async () => {
-    if (isConnecting) return;
-    isConnecting = true;
-    
     try {
-        if (mongoose.connection.readyState === 1) {
-            console.log('✅ MongoDB already connected');
-            isConnecting = false;
-            return;
-        }
-
-        await mongoose.connect(MONGODB_URI);
+        await mongoose.connect(MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+        });
         console.log('✅ MongoDB connected');
         
         // Initialize Blockchain
@@ -40,8 +34,7 @@ const connectDB = async () => {
         await blockchain.initialize();
     } catch (err) {
         console.error('❌ MongoDB connection error:', err);
-    } finally {
-        isConnecting = false;
+        // Don't throw error, let the app continue
     }
 };
 
@@ -50,21 +43,14 @@ connectDB();
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-        blockchain: blockchain ? 'initialized' : 'not initialized'
-    });
+    res.json({ status: 'ok', mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
 });
 
 // Routes
 app.post('/api/records', async (req, res) => {
     try {
         if (!blockchain) {
-            await connectDB();
-            if (!blockchain) {
-                return res.status(503).json({ error: 'Blockchain not initialized' });
-            }
+            return res.status(503).json({ error: 'Blockchain not initialized' });
         }
 
         const { studentName, studentId, courseDetails, grades } = req.body;
@@ -95,12 +81,8 @@ app.post('/api/records', async (req, res) => {
 app.get('/api/records', async (req, res) => {
     try {
         if (!blockchain) {
-            await connectDB();
-            if (!blockchain) {
-                return res.status(503).json({ error: 'Blockchain not initialized' });
-            }
+            return res.status(503).json({ error: 'Blockchain not initialized' });
         }
-        
         const records = await blockchain.getAllBlocks();
         res.json(records);
     } catch (error) {
@@ -112,12 +94,8 @@ app.get('/api/records', async (req, res) => {
 app.get('/api/records/:hash', async (req, res) => {
     try {
         if (!blockchain) {
-            await connectDB();
-            if (!blockchain) {
-                return res.status(503).json({ error: 'Blockchain not initialized' });
-            }
+            return res.status(503).json({ error: 'Blockchain not initialized' });
         }
-        
         const block = await blockchain.getBlock(req.params.hash);
         if (block) {
             res.json(block);
@@ -133,12 +111,8 @@ app.get('/api/records/:hash', async (req, res) => {
 app.delete('/api/records/:hash', async (req, res) => {
     try {
         if (!blockchain) {
-            await connectDB();
-            if (!blockchain) {
-                return res.status(503).json({ error: 'Blockchain not initialized' });
-            }
+            return res.status(503).json({ error: 'Blockchain not initialized' });
         }
-        
         const success = await blockchain.deleteBlock(req.params.hash);
         if (!success) {
             return res.status(400).json({ error: 'Cannot delete genesis block or record not found' });
@@ -153,12 +127,8 @@ app.delete('/api/records/:hash', async (req, res) => {
 app.get('/api/verify', async (req, res) => {
     try {
         if (!blockchain) {
-            await connectDB();
-            if (!blockchain) {
-                return res.status(503).json({ error: 'Blockchain not initialized' });
-            }
+            return res.status(503).json({ error: 'Blockchain not initialized' });
         }
-        
         const isValid = await blockchain.isChainValid();
         const blockCount = (await blockchain.getAllBlocks()).length;
         res.json({ isValid, blockCount });
