@@ -1,5 +1,5 @@
 const crypto = require('crypto-js');
-const BlockModel = require('./public/models/block'); // Adjust the path as necessary
+const Block = require('./public/models/Block'); // Adjust the path as necessary
 
 class Block {
     constructor(timestamp, data, previousHash = '', nonce = 0, hash = '') {
@@ -34,7 +34,7 @@ class Blockchain {
     }
 
     async initialize() {
-        const blockCount = await BlockModel.countDocuments();
+        const blockCount = await Block.countDocuments();
         if (blockCount === 0) {
             const genesisBlock = new Block(
                 new Date().toISOString(),
@@ -47,11 +47,11 @@ class Blockchain {
     }
 
     async getAllBlocks() {
-        return await BlockModel.find();
+        return await Block.find();
     }
 
     async getLatestBlock() {
-        const blocks = await BlockModel.find().sort({ _id: -1 }).limit(1);
+        const blocks = await Block.find().sort({ _id: -1 }).limit(1);
         return blocks[0];
     }
 
@@ -68,11 +68,11 @@ class Blockchain {
     }
 
     async getBlock(hash) {
-        return await BlockModel.findOne({ hash });
+        return await Block.findOne({ hash });
     }
 
     async deleteBlock(hashToDelete) {
-        const allBlocks = await BlockModel.find().sort({ timestamp: 1 });
+        const allBlocks = await Block.find().sort({ timestamp: 1 });
         const index = allBlocks.findIndex(block => block.hash === hashToDelete);
     
         // Cannot delete if not found or is Genesis block
@@ -82,7 +82,7 @@ class Blockchain {
         const blocksToUpdate = allBlocks.slice(index + 1);
     
         // Delete the block
-        await BlockModel.deleteOne({ hash: hashToDelete });
+        await Block.deleteOne({ hash: hashToDelete });
     
         // Update subsequent blocks
         let prevHash = previousBlock.hash;
@@ -128,7 +128,7 @@ class Blockchain {
     }
 
     async saveBlock(block) {
-        const blockDoc = new BlockModel({
+        const blockDoc = new Block({
             timestamp: block.timestamp,
             data: block.data,
             previousHash: block.previousHash,
