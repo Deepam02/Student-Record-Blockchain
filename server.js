@@ -1,4 +1,4 @@
-require('dotenv').config(); // 👈 Add this at the very top
+require('dotenv').config();
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -10,32 +10,54 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Load from .env
-const MONGODB_URI = process.env.MONGODB_URI; // 👈 Use environment variable
-
+const MONGODB_URI = process.env.MONGODB_URI;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// Connect MongoDB
-mongoose.connect(MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-}).then(async () => {
-    console.log('✅ MongoDB connected');
+// MongoDB Connection with retry logic
+let blockchain;
+const connectDB = async () => {
+    try {
+        await mongoose.connect(MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+        });
+        console.log('✅ MongoDB connected');
+        
+        // Initialize Blockchain
+        blockchain = new Blockchain();
+        await blockchain.initialize();
+    } catch (err) {
+        console.error('❌ MongoDB connection error:', err);
+        // Don't throw error, let the app continue
+    }
+};
 
-    // Initialize Blockchain
-    global.blockchain = new Blockchain();
-    await blockchain.initialize();
-}).catch(err => {
-    console.error('❌ MongoDB connection error:', err);
+// Connect to MongoDB
+connectDB();
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
 });
 
 // Routes
 app.post('/api/records', async (req, res) => {
     try {
+        if (!blockchain) {
+            return res.status(503).json({ error: 'Blockchain not initialized' });
+        }
+
         const { studentName, studentId, courseDetails, grades } = req.body;
+
+        if (!studentName || !studentId || !courseDetails || !grades) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
 
         const recordData = {
             studentName,
@@ -51,42 +73,83 @@ app.post('/api/records', async (req, res) => {
             blockHash: newBlock.hash
         });
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        console.error('Error adding record:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
 app.get('/api/records', async (req, res) => {
-    const records = await blockchain.getAllBlocks();
-    res.json(records);
+    try {
+        if (!blockchain) {
+            return res.status(503).json({ error: 'Blockchain not initialized' });
+        }
+        const records = await blockchain.getAllBlocks();
+        res.json(records);
+    } catch (error) {
+        console.error('Error getting records:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 app.get('/api/records/:hash', async (req, res) => {
-    const block = await blockchain.getBlock(req.params.hash);
-    if (block) {
-        res.json(block);
-    } else {
-        res.status(404).json({ error: 'Record not found' });
+    try {
+        if (!blockchain) {
+            return res.status(503).json({ error: 'Blockchain not initialized' });
+        }
+        const block = await blockchain.getBlock(req.params.hash);
+        if (block) {
+            res.json(block);
+        } else {
+            res.status(404).json({ error: 'Record not found' });
+        }
+    } catch (error) {
+        console.error('Error getting record:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
 app.delete('/api/records/:hash', async (req, res) => {
     try {
+        if (!blockchain) {
+            return res.status(503).json({ error: 'Blockchain not initialized' });
+        }
         const success = await blockchain.deleteBlock(req.params.hash);
         if (!success) {
             return res.status(400).json({ error: 'Cannot delete genesis block or record not found' });
         }
         res.json({ message: 'Record deleted successfully' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Error deleting record:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
 app.get('/api/verify', async (req, res) => {
-    const isValid = await blockchain.isChainValid();
-    const blockCount = (await blockchain.getAllBlocks()).length;
-    res.json({ isValid, blockCount });
+    try {
+        if (!blockchain) {
+            return res.status(503).json({ error: 'Blockchain not initialized' });
+        }
+        const isValid = await blockchain.isChainValid();
+        const blockCount = (await blockchain.getAllBlocks()).length;
+        res.json({ isValid, blockCount });
+    } catch (error) {
+        console.error('Error verifying chain:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something broke!' });
 });
+
+// Only start the server if we're not in a serverless environment
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+// Export the Express API
+module.exports = app;
