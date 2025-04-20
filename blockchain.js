@@ -1,5 +1,5 @@
 const crypto = require('crypto-js');
-const Block = require('./public/models/Block'); // Adjust the path as necessary
+const Block = require('./public/models/block'); // Adjust the path as necessary
 
 class Block {
     constructor(timestamp, data, previousHash = '', nonce = 0, hash = '') {
