@@ -4,6 +4,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const path = require('path');
 const { Blockchain } = require('./blockchain');
 
 const app = express();
@@ -11,7 +12,9 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
-app.use(express.static('public'));
+
+// Serve static frontend files from "public"
+app.use(express.static(path.join(__dirname, 'public')));
 
 // MongoDB connection logic (shared across requests)
 let isConnected = false;
@@ -37,6 +40,8 @@ const getBlockchain = async () => {
     await blockchain.initialize();
     return blockchain;
 };
+
+// --- API ROUTES --- //
 
 // Health check
 app.get('/api/health', async (req, res) => {
@@ -136,13 +141,18 @@ app.get('/api/verify', async (req, res) => {
     }
 });
 
+// ✅ Serve frontend index.html for all unmatched routes (important for Vercel)
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Error middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).json({ error: 'Something broke!' });
 });
 
-// Start only in local dev
+// Local dev mode only
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
@@ -150,5 +160,5 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// Export handler for Vercel
+// Vercel export
 module.exports = app;
