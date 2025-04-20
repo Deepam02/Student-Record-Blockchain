@@ -12,31 +12,27 @@ const PORT = process.env.PORT || 3000;
 // Load from .env
 const MONGODB_URI = process.env.MONGODB_URI;
 
-if (!MONGODB_URI) {
-    console.error('❌ MONGODB_URI is not defined in environment variables');
-    process.exit(1);
-}
-
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// MongoDB Connection with retry logic
+// MongoDB Connection
 let blockchain;
+let isConnecting = false;
+
 const connectDB = async () => {
+    if (isConnecting) return;
+    isConnecting = true;
+    
     try {
         if (mongoose.connection.readyState === 1) {
             console.log('✅ MongoDB already connected');
+            isConnecting = false;
             return;
         }
 
-        await mongoose.connect(MONGODB_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            serverSelectionTimeoutMS: 5000,
-            socketTimeoutMS: 45000,
-        });
+        await mongoose.connect(MONGODB_URI);
         console.log('✅ MongoDB connected');
         
         // Initialize Blockchain
@@ -44,12 +40,13 @@ const connectDB = async () => {
         await blockchain.initialize();
     } catch (err) {
         console.error('❌ MongoDB connection error:', err);
-        throw err; // Throw error to handle it in the route handlers
+    } finally {
+        isConnecting = false;
     }
 };
 
 // Connect to MongoDB
-connectDB().catch(console.error);
+connectDB();
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -60,25 +57,16 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Middleware to ensure blockchain is initialized
-const ensureBlockchain = async (req, res, next) => {
+// Routes
+app.post('/api/records', async (req, res) => {
     try {
         if (!blockchain) {
             await connectDB();
+            if (!blockchain) {
+                return res.status(503).json({ error: 'Blockchain not initialized' });
+            }
         }
-        if (!blockchain) {
-            return res.status(503).json({ error: 'Blockchain not initialized' });
-        }
-        next();
-    } catch (error) {
-        console.error('Error ensuring blockchain:', error);
-        res.status(503).json({ error: 'Service unavailable' });
-    }
-};
 
-// Routes
-app.post('/api/records', ensureBlockchain, async (req, res) => {
-    try {
         const { studentName, studentId, courseDetails, grades } = req.body;
 
         if (!studentName || !studentId || !courseDetails || !grades) {
@@ -104,8 +92,15 @@ app.post('/api/records', ensureBlockchain, async (req, res) => {
     }
 });
 
-app.get('/api/records', ensureBlockchain, async (req, res) => {
+app.get('/api/records', async (req, res) => {
     try {
+        if (!blockchain) {
+            await connectDB();
+            if (!blockchain) {
+                return res.status(503).json({ error: 'Blockchain not initialized' });
+            }
+        }
+        
         const records = await blockchain.getAllBlocks();
         res.json(records);
     } catch (error) {
@@ -114,8 +109,15 @@ app.get('/api/records', ensureBlockchain, async (req, res) => {
     }
 });
 
-app.get('/api/records/:hash', ensureBlockchain, async (req, res) => {
+app.get('/api/records/:hash', async (req, res) => {
     try {
+        if (!blockchain) {
+            await connectDB();
+            if (!blockchain) {
+                return res.status(503).json({ error: 'Blockchain not initialized' });
+            }
+        }
+        
         const block = await blockchain.getBlock(req.params.hash);
         if (block) {
             res.json(block);
@@ -128,8 +130,15 @@ app.get('/api/records/:hash', ensureBlockchain, async (req, res) => {
     }
 });
 
-app.delete('/api/records/:hash', ensureBlockchain, async (req, res) => {
+app.delete('/api/records/:hash', async (req, res) => {
     try {
+        if (!blockchain) {
+            await connectDB();
+            if (!blockchain) {
+                return res.status(503).json({ error: 'Blockchain not initialized' });
+            }
+        }
+        
         const success = await blockchain.deleteBlock(req.params.hash);
         if (!success) {
             return res.status(400).json({ error: 'Cannot delete genesis block or record not found' });
@@ -141,8 +150,15 @@ app.delete('/api/records/:hash', ensureBlockchain, async (req, res) => {
     }
 });
 
-app.get('/api/verify', ensureBlockchain, async (req, res) => {
+app.get('/api/verify', async (req, res) => {
     try {
+        if (!blockchain) {
+            await connectDB();
+            if (!blockchain) {
+                return res.status(503).json({ error: 'Blockchain not initialized' });
+            }
+        }
+        
         const isValid = await blockchain.isChainValid();
         const blockCount = (await blockchain.getAllBlocks()).length;
         res.json({ isValid, blockCount });
