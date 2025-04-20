@@ -1,5 +1,5 @@
 const crypto = require('crypto-js');
-const Block = require('./public/models/block'); // Adjust the path as necessary
+const BlockModel = require('./public/models/block'); // ✅ Mongoose model renamed
 
 class Block {
     constructor(timestamp, data, previousHash = '', nonce = 0, hash = '') {
@@ -34,7 +34,7 @@ class Blockchain {
     }
 
     async initialize() {
-        const blockCount = await Block.countDocuments();
+        const blockCount = await BlockModel.countDocuments(); // ✅ Use BlockModel here
         if (blockCount === 0) {
             const genesisBlock = new Block(
                 new Date().toISOString(),
@@ -47,11 +47,11 @@ class Blockchain {
     }
 
     async getAllBlocks() {
-        return await Block.find();
+        return await BlockModel.find(); // ✅
     }
 
     async getLatestBlock() {
-        const blocks = await Block.find().sort({ _id: -1 }).limit(1);
+        const blocks = await BlockModel.find().sort({ _id: -1 }).limit(1);
         return blocks[0];
     }
 
@@ -68,45 +68,39 @@ class Blockchain {
     }
 
     async getBlock(hash) {
-        return await Block.findOne({ hash });
+        return await BlockModel.findOne({ hash });
     }
 
     async deleteBlock(hashToDelete) {
-        const allBlocks = await Block.find().sort({ timestamp: 1 });
+        const allBlocks = await BlockModel.find().sort({ timestamp: 1 });
         const index = allBlocks.findIndex(block => block.hash === hashToDelete);
-    
-        // Cannot delete if not found or is Genesis block
+
         if (index <= 0) return false;
-    
+
         const previousBlock = allBlocks[index - 1];
         const blocksToUpdate = allBlocks.slice(index + 1);
-    
-        // Delete the block
-        await Block.deleteOne({ hash: hashToDelete });
-    
-        // Update subsequent blocks
+
+        await BlockModel.deleteOne({ hash: hashToDelete });
+
         let prevHash = previousBlock.hash;
         for (const block of blocksToUpdate) {
             block.previousHash = prevHash;
-    
-            // Recalculate hash using existing nonce and other data
+
             const recalculatedHash = crypto.SHA256(
                 block.previousHash +
                 block.timestamp +
                 JSON.stringify(block.data) +
                 block.nonce
             ).toString();
-    
+
             block.hash = recalculatedHash;
             await block.save();
-    
-            // Update prevHash for the next iteration
+
             prevHash = recalculatedHash;
         }
-    
+
         return true;
     }
-    
 
     async isChainValid() {
         const chain = await this.getAllBlocks();
@@ -128,7 +122,7 @@ class Blockchain {
     }
 
     async saveBlock(block) {
-        const blockDoc = new Block({
+        const blockDoc = new BlockModel({
             timestamp: block.timestamp,
             data: block.data,
             previousHash: block.previousHash,
